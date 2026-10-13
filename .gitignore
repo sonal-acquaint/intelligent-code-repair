@@ -7,6 +7,10 @@ coverage/
 
 .env
 .env.*
+.env.example
+*.env.example
+
+
 
 # OS generated files
 .DS_Store
@@ -17,3 +21,20 @@ Thumbs.db
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+
+# Python
+python/venv/
+python/.venv/
+python_service/.venv/
+venv/
+.venv/
+**/__pycache__/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+python/.env
+python_service/.env
+python_service/.env.example
+
