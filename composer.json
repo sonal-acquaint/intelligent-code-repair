@@ -1,22 +1,54 @@
 {
     "name": "acquaint/laravel-ai-bug-fixer",
-    "description": "AI-powered bug detection and fixing for Laravel applications",
+    "description": "AI-powered automated bug detection and code repair for Laravel applications",
     "type": "library",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "Acquaint Softtech",
+            "homepage": "https://acquaintsoft.com"
+        }
+    ],
+    "keywords": [
+        "laravel",
+        "ai",
+        "bug-fixer",
+        "error-tracking",
+        "exception-handler"
+    ],
     "require": {
-        "php": "^8.3",
-        "illuminate/support": "^12.0 || ^13.0"
+        "php": "^8.2.0",
+        "illuminate/support": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/http": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/queue": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/contracts": "^10.0 || ^11.0 || ^12.0",
+        "illuminate/bus": "^10.0 || ^11.0 || ^12.0"
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^8.0 || ^9.0 || ^10.0",
+        "phpunit/phpunit": "^10.5 || ^11.0"
     },
     "autoload": {
         "psr-4": {
-            "Acquaint\\LaravelAiBugFixer\\": "src/"
+            "Acquaint\\AiBugFixer\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Acquaint\\AiBugFixer\\Tests\\": "tests/"
         }
     },
     "extra": {
         "laravel": {
             "providers": [
-                "Acquaint\\LaravelAiBugFixer\\BugFixerServiceProvider"
+                "Acquaint\\AiBugFixer\\BugFixerServiceProvider"
             ]
         }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "vendor/bin/phpunit"
     }
 }
