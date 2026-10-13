@@ -12,6 +12,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Acquaint\AiBugFixer\Models\AiError;
 use UnexpectedValueException;
 
 class AnalyzeErrorJob implements ShouldQueue
@@ -28,18 +29,40 @@ class AnalyzeErrorJob implements ShouldQueue
     public int $timeout = 90;
 
     public function __construct(
-        public array $payload
+        public array $payload,
+        public ?int $errorRecordId = null
     ) {}
 
     public function handle(AiFixClient $client): void
     {
+        if ($this->errorRecordId) {
+            try {
+                AiError::where('id', $this->errorRecordId)->update(['status' => 'analyzing']);
+            } catch (Throwable) {
+                // Ignore DB error during status update
+            }
+        }
+
         try {
             $result = $client->analyze($this->payload);
 
             $this->validateResult($result);
 
+            if ($this->errorRecordId) {
+                try {
+                    AiError::where('id', $this->errorRecordId)->update([
+                        'status' => $result['status'] ?? 'unknown',
+                        'ai_summary' => $result['summary'] ?? null,
+                        'ai_fixes' => $result['fixes'] ?? null,
+                    ]);
+                } catch (Throwable) {
+                    // Ignore DB error during update
+                }
+            }
+
             Log::info('AI Bug Fixer analysis completed.', [
                 'error_id' => $this->payload['id'] ?? null,
+                'record_id' => $this->errorRecordId,
                 'exception' => $this->payload['exception_class'] ?? null,
                 'status' => $result['status'] ?? 'unknown',
                 'summary' => $result['summary'] ?? null,
@@ -48,6 +71,7 @@ class AnalyzeErrorJob implements ShouldQueue
         } catch (Throwable $exception) {
             Log::warning('AI Bug Fixer analysis attempt failed.', [
                 'error_id' => $this->payload['id'] ?? null,
+                'record_id' => $this->errorRecordId,
                 'exception' => get_class($exception),
                 'message' => $exception->getMessage(),
                 'attempt' => $this->attempts(),
@@ -62,8 +86,20 @@ class AnalyzeErrorJob implements ShouldQueue
      */
     public function failed(?Throwable $exception): void
     {
+        if ($this->errorRecordId) {
+            try {
+                AiError::where('id', $this->errorRecordId)->update([
+                    'status' => 'error',
+                    'ai_summary' => $exception ? $exception->getMessage() : 'Job failed',
+                ]);
+            } catch (Throwable) {
+                // Ignore DB error during failure update
+            }
+        }
+
         Log::error('AI Bug Fixer job exhausted all retry attempts.', [
             'error_id' => $this->payload['id'] ?? null,
+            'record_id' => $this->errorRecordId,
             'exception' => $exception ? get_class($exception) : null,
             'message' => $exception ? $exception->getMessage() : null,
         ]);

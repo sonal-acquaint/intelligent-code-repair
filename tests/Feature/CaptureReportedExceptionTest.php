@@ -75,4 +75,60 @@ class CaptureReportedExceptionTest extends TestCase
 
         Queue::assertNothingPushed();
     }
+
+    public function test_it_stores_error_in_database_and_links_to_job(): void
+    {
+        Queue::fake();
+
+        config()->set('ai-bug-fixer.enabled', true);
+        config()->set('ai-bug-fixer.allowed_paths', []);
+        config()->set('ai-bug-fixer.excluded_paths', []);
+
+        $exception = new Exception('Database test error');
+
+        $listener = new CaptureReportedException();
+        $listener->handle($exception);
+
+        $this->assertDatabaseHas('ai_bug_fixer_errors', [
+            'exception_class' => Exception::class,
+            'message' => 'Database test error',
+            'occurrences_count' => 1,
+            'status' => 'pending',
+        ]);
+
+        Queue::assertPushed(AnalyzeErrorJob::class, function (AnalyzeErrorJob $job) {
+            return $job->errorRecordId !== null;
+        });
+    }
+
+    public function test_it_deduplicates_repeated_errors_within_debounce_window(): void
+    {
+        Queue::fake();
+
+        config()->set('ai-bug-fixer.enabled', true);
+        config()->set('ai-bug-fixer.allowed_paths', []);
+        config()->set('ai-bug-fixer.excluded_paths', []);
+
+        $exception = new Exception('Repeated burst error');
+
+        $listener = new CaptureReportedException();
+
+        // First occurrence
+        $listener->handle($exception);
+
+        // Second occurrence of same error immediately
+        $listener->handle($exception);
+
+        // Third occurrence of same error immediately
+        $listener->handle($exception);
+
+        // Only 1 job should have been dispatched to queue!
+        Queue::assertPushed(AnalyzeErrorJob::class, 1);
+
+        // Occurrences count should be incremented to 3
+        $this->assertDatabaseHas('ai_bug_fixer_errors', [
+            'message' => 'Repeated burst error',
+            'occurrences_count' => 3,
+        ]);
+    }
 }
