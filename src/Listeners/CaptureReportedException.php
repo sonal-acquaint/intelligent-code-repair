@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Acquaint\AiBugFixer\Listeners;
 
 use Acquaint\AiBugFixer\Jobs\AnalyzeErrorJob;
+use Acquaint\AiBugFixer\Models\AiError;
 use Acquaint\AiBugFixer\Support\CodeSnippetExtractor;
 use Acquaint\AiBugFixer\Support\DataScrubber;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -56,7 +58,13 @@ class CaptureReportedException
         try {
             $payload = $this->buildPayload($exception);
 
-            $job = AnalyzeErrorJob::dispatch($payload);
+            [$recordId, $shouldDispatch] = $this->processDatabaseRecord($exception, $payload);
+
+            if (! $shouldDispatch) {
+                return;
+            }
+
+            $job = AnalyzeErrorJob::dispatch($payload, $recordId);
 
             $queue = config('ai-bug-fixer.queue');
             if ($queue) {
@@ -75,6 +83,64 @@ class CaptureReportedException
             ]);
         } finally {
             static::$isHandling = false;
+        }
+    }
+
+    /**
+     * Store or update error in database with deduplication.
+     *
+     * @return array{0: ?int, 1: bool} Returns [recordId, shouldDispatch]
+     */
+    protected function processDatabaseRecord(Throwable $exception, array $payload): array
+    {
+        try {
+            if (! Schema::hasTable('ai_bug_fixer_errors')) {
+                return [null, true];
+            }
+
+            $errorHash = hash('sha256', get_class($exception) . ':' . $payload['file'] . ':' . $payload['line']);
+            $debounceMinutes = 15;
+
+            /** @var AiError|null $existing */
+            $existing = AiError::where('error_hash', $errorHash)->first();
+
+            if ($existing) {
+                $lastSeen = $existing->last_seen_at ?? $existing->updated_at;
+                $isRecent = $lastSeen && $lastSeen->gt(now()->subMinutes($debounceMinutes));
+
+                $existing->increment('occurrences_count');
+                $existing->update(['last_seen_at' => now()]);
+
+                // Suppress duplicate queue dispatch if error is already pending, analyzing, or has fix within debounce window
+                if ($isRecent && in_array($existing->status, ['pending', 'analyzing', 'fix_available'], true)) {
+                    return [$existing->id, false];
+                }
+
+                $existing->update(['status' => 'pending']);
+                return [$existing->id, true];
+            }
+
+            $created = AiError::create([
+                'uuid' => $payload['id'],
+                'error_hash' => $errorHash,
+                'exception_class' => $payload['exception_class'],
+                'message' => $payload['message'],
+                'file' => $payload['file'],
+                'line' => $payload['line'],
+                'occurrences_count' => 1,
+                'status' => 'pending',
+                'payload' => $payload,
+                'last_seen_at' => now(),
+            ]);
+
+            return [$created->id, true];
+        } catch (Throwable $dbError) {
+            Log::warning('AI Bug Fixer failed to persist error to database.', [
+                'exception' => get_class($dbError),
+                'message' => $dbError->getMessage(),
+            ]);
+
+            return [null, true];
         }
     }
 

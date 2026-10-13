@@ -35,10 +35,16 @@ class BugFixerServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+
         if ($this->app->runningInConsole()) {
             $this->publishes([
                 __DIR__ . '/../config/ai-bug-fixer.php' => config_path('ai-bug-fixer.php'),
             ], ['ai-bug-fixer-config', 'config']);
+
+            $this->publishes([
+                __DIR__ . '/../database/migrations' => database_path('migrations'),
+            ], ['ai-bug-fixer-migrations', 'migrations']);
 
             $this->commands([
                 TestConnectionCommand::class,

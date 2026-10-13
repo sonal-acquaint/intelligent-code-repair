@@ -1,81 +1,317 @@
-# Laravel AI Bug Fixer
+<div align="center">
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/acquaint/laravel-ai-bug-fixer.svg?style=flat-square)](https://packagist.org/packages/acquaint/laravel-ai-bug-fixer)
-[![Total Downloads](https://img.shields.io/packagist/dt/acquaint/laravel-ai-bug-fixer.svg?style=flat-square)](https://packagist.org/packages/acquaint/laravel-ai-bug-fixer)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE.md)
+# 🛠️ Laravel AI Bug Fixer
 
-**Laravel AI Bug Fixer** is a production-grade Laravel package that automatically captures application exceptions, extracts sanitized context and code snippets, queues the diagnostic payload, and sends it to a Python-based AI service to analyze root causes and propose code repairs.
-
----
-
-## Features
-
-- **Automated Exception Capture**: Hooks directly into Laravel's `ExceptionReported` event.
-- **Recursion Guard**: Built-in safeguards prevent cascading loops if the analyzer or network fails.
-- **Sensitive Data Redaction**: Automatically scrubs credentials, auth tokens, passwords, and sanitizes stack trace objects.
-- **Source Code Snippets**: Automatically extracts surrounding code lines (-10 to +10) from the target file to provide rich context to the AI model.
-- **Path & Exception Filtering**: Configurable `allowed_paths`, `excluded_paths`, and `ignored_exceptions` (e.g. 404s, validation errors).
-- **Asynchronous & Resilient**: Background queue dispatch with exponential backoff and retries.
-- **Developer CLI Tooling**: Built-in `php artisan ai-bug-fixer:test` to verify connectivity to your Python service.
+<p align="center">
+  <strong>Automated error detection, intelligent context extraction, and AI-assisted code repair for Laravel.</strong>
+</p>
+</div>
 
 ---
 
-## Installation
+## 📖 Table of Contents
 
-You can install the package via Composer:
+- [What is Laravel AI Bug Fixer?](#-what-is-laravel-ai-bug-fixer)
+- [Why Use This Package?](#-why-use-this-package)
+- [Prerequisites](#-prerequisites)
+- [Step-by-Step Installation Guide (Beginner Friendly)](#-step-by-step-installation-guide-beginner-friendly)
+  - [Step 1: Open Terminal in Project Folder](#step-1-open-terminal-in-project-folder)
+  - [Step 2: Install via Composer](#step-2-install-via-composer)
+  - [Step 3: Publish Configuration File](#step-3-publish-configuration-file)
+  - [Step 4: Run Database Migrations](#step-4-run-database-migrations)
+  - [Step 5: Update Your `.env` File](#step-5-update-your-env-file)
+  - [Step 6: Test the Connection](#step-6-test-the-connection)
+  - [Step 7: Ensure Your Queue Worker is Running](#step-7-ensure-your-queue-worker-is-running)
+- [Database Storage & Smart Deduplication](#-database-storage--smart-deduplication)
+- [How It Works (Visual Workflow)](#-how-it-works-visual-workflow)
+- [Configuration Reference](#-configuration-reference)
+- [Privacy & Security by Default](#-privacy--security-by-default)
+- [Testing the Package](#-testing-the-package)
+- [Frequently Asked Questions (Troubleshooting)](#-frequently-asked-questions-troubleshooting)
+- [Python AI Service Specification (For Backend Engineers)](#-python-ai-service-specification-for-backend-engineers)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+---
+
+## 💡 What is Laravel AI Bug Fixer?
+
+In plain English: **Whenever a bug or crash happens in your Laravel website or application, this package automatically captures the error, removes sensitive data (like passwords and credit cards), grabs the code surrounding the error, and asks an AI service for the exact root cause and suggested fix.**
+
+Instead of spending hours searching through confusing log files, you get actionable AI suggestions explaining what went wrong and how to fix the code.
+
+---
+
+## ✨ Why Use This Package?
+
+- 🛡️ **Zero-Leak Security**: Automatically redacts passwords, tokens, API keys, cookies, and credit cards before anything leaves your server.
+- ⚡ **Zero Performance Lag**: Analyzes errors asynchronously in background queues so website visitors never experience slow page loads.
+- 🔍 **Rich Context Extractor**: Captures 10 lines of code before and after the crash line so the AI model sees the full picture.
+- 🔁 **Infinite-Loop Prevention**: Built-in recursion guards ensure that an error during diagnosis never crashes your application.
+- 🎯 **Smart Noise Filtering**: Automatically ignores routine HTTP 404 (Not Found) errors, validation errors, and vendor libraries.
+- 🧪 **One-Command Health Check**: Includes a built-in `php artisan ai-bug-fixer:test` command to verify connectivity instantly.
+
+---
+
+## 📋 Prerequisites
+
+Before installing, make sure your environment meets the following requirements:
+
+| Requirement | Supported Versions | Notes |
+| :--- | :--- | :--- |
+| **PHP** | `8.2` or higher | Check with `php -v` |
+| **Laravel** | `10.x`, `11.x`, or `12.x` | Check with `php artisan --version` |
+| **Composer** | `2.x` | Check with `composer -v` |
+| **AI Service** | Running endpoint | A Python AI service (e.g., `http://127.0.0.1:8001`) |
+
+---
+
+## 🚀 Step-by-Step Installation Guide (Beginner Friendly)
+
+Follow these easy steps to get up and running in under 3 minutes.
+
+### Step 1: Open Terminal in Project Folder
+
+Open your terminal or command prompt (Terminal on macOS/Linux, PowerShell or Git Bash on Windows), and navigate into your Laravel project directory:
+
+```bash
+cd /path/to/your-laravel-project
+```
+
+---
+
+### Step 2: Install via Composer
+
+Run the following command to download and add the package to your project:
 
 ```bash
 composer require acquaint/laravel-ai-bug-fixer
 ```
 
-Publish the package configuration file:
+> 💡 **What this does:** Composer downloads the package code and registers the service provider with Laravel automatically.
+
+---
+
+### Step 3: Publish Configuration File
+
+Run this Artisan command to copy the package's default configuration into your Laravel `config` directory:
 
 ```bash
 php artisan vendor:publish --tag=ai-bug-fixer-config
 ```
 
+> 💡 **What this does:** This creates a new file at `config/ai-bug-fixer.php`. You can inspect and adjust settings there anytime.
+
 ---
 
-## Configuration
+### Step 4: Run Database Migrations
 
-The published configuration file is located at `config/ai-bug-fixer.php`. You can configure the following environment variables in your `.env` file:
+Run Laravel's migration command to create the `ai_bug_fixer_errors` table:
 
-```env
-# Enable or disable AI error tracking
-AI_BUG_FIXER_ENABLED=true
+```bash
+php artisan migrate
+```
 
-# Python AI service endpoint
-AI_BUG_FIXER_PYTHON_URL=http://127.0.0.1:8001
+> 💡 **What this does:** This creates the database table used to store bug history, AI fix summaries, code diffs, and occurrence counts so you never lose diagnosis results.
 
-# Optional API key for authenticating with your Python service
-AI_BUG_FIXER_API_KEY=your-secret-api-key
-
-# Request timeout in seconds
-AI_BUG_FIXER_TIMEOUT=60
-
-# Retries on network failure
-AI_BUG_FIXER_RETRIES=2
-
-# Queue name for asynchronous processing
-AI_BUG_FIXER_QUEUE=ai-bug-fixes
+*(Optional)* If you want to customize the migration file before migrating:
+```bash
+php artisan vendor:publish --tag=ai-bug-fixer-migrations
 ```
 
 ---
 
-## Verifying Connectivity
+### Step 5: Update Your `.env` File
 
-You can test that your Laravel application can communicate with the Python AI endpoint using the Artisan command:
+Open the `.env` file located in the root directory of your Laravel project (using VS Code, PHPStorm, Sublime, or any text editor). 
 
+Add the following lines at the bottom of your `.env` file:
+
+```env
+# --------------------------------------------------------------------------
+# Laravel AI Bug Fixer Configuration
+# --------------------------------------------------------------------------
+
+# Set to true to activate automated error analysis
+AI_BUG_FIXER_ENABLED=true
+
+# The URL of your Python AI service (change port or domain if needed)
+AI_BUG_FIXER_PYTHON_URL=http://127.0.0.1:8001
+
+# (Optional) Secret API token if your Python service requires authentication
+AI_BUG_FIXER_API_KEY=
+
+# (Optional) Dedicated queue name for processing error analysis jobs
+AI_BUG_FIXER_QUEUE=ai-bug-fixes
+```
+
+#### 🔍 What Each Setting Means:
+
+- **`AI_BUG_FIXER_ENABLED`**: Default is `false`. Change this to `true` to enable error capturing.
+- **`AI_BUG_FIXER_PYTHON_URL`**: The web address where your AI service is running. If running locally, `http://127.0.0.1:8001` is standard.
+- **`AI_BUG_FIXER_API_KEY`**: If your AI service uses a Bearer token or API key for security, paste it here. Otherwise, leave it blank.
+- **`AI_BUG_FIXER_QUEUE`**: The name of the Laravel queue used to process errors in the background (default: `ai-bug-fixes`).
+
+---
+
+### Step 6: Test the Connection
+
+Verify that your Laravel app can communicate with your Python AI service by running:
+
+```bash
+php artisan ai-bug-fixer:test
+```
+
+#### ✅ If Everything is Working:
+You will see output similar to this:
+```text
+Testing connection to AI Bug Fixer Python service at: http://127.0.0.1:8001
+Sending probe request to /analyze endpoint... SUCCESS
+Response time: 42.15ms
+Service status: fix_available
+```
+
+#### ❌ If the Connection Fails:
+```text
+Sending probe request to /analyze endpoint... FAILED
+Connection failed: Connection refused
+Please check that the Python service is running and accessible at: http://127.0.0.1:8001
+```
+> ⚠️ **How to fix:** Ensure that your Python AI service is started and listening on the URL and port defined in your `AI_BUG_FIXER_PYTHON_URL`.
+
+---
+
+### Step 7: Ensure Your Queue Worker is Running
+
+Because the package processes error reports in the background so that your users never experience slowdowns, your Laravel queue worker must be running.
+
+#### In Local Development:
+Run the queue worker in a separate terminal window:
+```bash
+php artisan queue:work --queue=ai-bug-fixes
+```
+
+> 💡 **Quick Tip for Local Testing:** If you do not want to run a queue worker during local development, open your `.env` file and set:
+> ```env
+> QUEUE_CONNECTION=sync
+> ```
+> This causes Laravel to process queue jobs immediately without needing a separate worker.
+
+#### In Production:
+Use a process manager like **Supervisor** or Laravel Horizon to keep `php artisan queue:work --queue=ai-bug-fixes` running continuously in the background.
+
+---
+
+## 🗄️ Database Storage & Smart Deduplication
+
+### Handling Error Spikes & Duplicate Errors
+If 50 users hit the same broken route within 10 seconds, traditional error loggers flood your queue with 50 duplicate requests, draining AI API tokens.
+
+**Laravel AI Bug Fixer handles this automatically:**
+1. **Fingerprint Hash**: Calculates a unique fingerprint hash (`sha256`) based on the exception class, source file, and line number.
+2. **Occurrence Counter**: When a known error occurs repeatedly within the debounce window (default: 15 minutes), the package increments `occurrences_count` in the database and updates `last_seen_at`.
+3. **Queue Throttling**: It avoids queueing duplicate requests to the Python AI service if an analysis is already pending, in progress, or recently completed.
+4. **Persistent History**: The Eloquent model `Acquaint\AiBugFixer\Models\AiError` stores the complete history, status (`pending`, `analyzing`, `fix_available`, `no_fix_found`, `error`), AI summary, and generated code patches.
+
+---
+
+## 🔄 How It Works (Visual Workflow)
+
+```mermaid
+flowchart TD
+    A["💥 Bug Occurs in Laravel Application"] --> B["⚡ CaptureReportedException Listener"]
+    B --> C{"Is Path & Exception Allowed?"}
+    C -- "No (Vendor, 404, Ignored)" --> D["🚫 Skip Processing"]
+    C -- "Yes (App Code)" --> E["🔍 Check Existing Error Hash in DB"]
+    E -- "Duplicate within debounce window" --> F["📈 Increment occurrences_count & Exit"]
+    E -- "New Error or Expired Window" --> G["💾 Save to DB (status: pending)"]
+    G --> H["📬 Dispatch AnalyzeErrorJob to Queue"]
+    H --> I["🌐 Send Payload to Python AI API (/analyze)"]
+    I --> J{"AI Diagnosis Result"}
+    J --> K["💾 Update DB Record (status: fix_available & save diff)"]
+```
+
+---
+
+## ⚙️ Configuration Reference
+
+All settings can be customized in `config/ai-bug-fixer.php` or overridden via `.env`:
+
+| Setting | Environment Variable | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| **Enable/Disable** | `AI_BUG_FIXER_ENABLED` | `false` | Master switch to turn error analysis on or off. |
+| **Service URL** | `AI_BUG_FIXER_PYTHON_URL` | `http://127.0.0.1:8001` | Base URL of the Python AI analysis endpoint. |
+| **API Key** | `AI_BUG_FIXER_API_KEY` | `null` | Optional Bearer authentication token for the AI service. |
+| **Timeout** | `AI_BUG_FIXER_TIMEOUT` | `60` | Max seconds to wait for AI service responses. |
+| **Retries** | `AI_BUG_FIXER_RETRIES` | `2` | Number of times to retry if an API call fails. |
+| **Queue Name** | `AI_BUG_FIXER_QUEUE` | `ai-bug-fixes` | Queue name where error jobs are dispatched. |
+| **Queue Connection**| `AI_BUG_FIXER_QUEUE_CONNECTION` | `null` | Optional specific queue connection (`redis`, `database`, etc.). |
+| **Auto Apply Fix** | `AI_BUG_FIXER_AUTO_APPLY` | `false` | Whether to automatically apply code patches. Kept `false` for safety. |
+| **Context Lines** | `AI_BUG_FIXER_CONTEXT_LINES` | `10` | Number of lines before and after the bug line to include in the context. |
+
+---
+
+## 🔒 Privacy & Security by Default
+
+Your security and user privacy are prioritized:
+
+1. **Automatic Field Scrubbing**:
+   The following sensitive fields are automatically masked with `********`:
+   - `password`, `password_confirmation`, `secret`, `token`, `authorization`
+   - `cookie`, `api_key`, `card_number`, `cvv`, `ssn`
+
+2. **Stack Trace Sanitization**:
+   Sensitive objects, database credentials, and raw connection parameters are sanitized before dispatch.
+
+3. **Vendor & Secret Isolation**:
+   By default, only errors occurring in your application code (`app/`) are inspected. System directories (`vendor/`, `storage/`, `node_modules/`, and `.env`) are strictly excluded.
+
+---
+
+## 🧪 Testing the Package
+
+To run the automated test suite for this package:
+
+```bash
+composer test
+```
+
+Or run PHPUnit directly:
+
+```bash
+./vendor/bin/phpunit
+```
+
+---
+
+## ❓ Frequently Asked Questions (Troubleshooting)
+
+### Q: An error occurred in my app, but nothing was sent to the AI service. Why?
+**Check the following checklist:**
+1. **Is `AI_BUG_FIXER_ENABLED=true` in your `.env`?** (By default, it is `false`).
+2. **Is your queue worker running?** Run `php artisan queue:work --queue=ai-bug-fixes` to process pending jobs.
+3. **Did the error happen in `app/`?** Errors from third-party vendor libraries (`vendor/`) are ignored by default.
+4. **Is it an ignored exception?** Standard 404 (Not Found) or Form Validation errors are intentionally skipped.
+
+### Q: Does this package slow down my application for visitors?
+**No.** All error packaging and AI network calls are processed asynchronously via Laravel's background queue. Your website visitors will experience zero delay.
+
+### Q: What happens if the AI service goes offline?
+**Nothing breaks.** The package is built with multiple fail-safe mechanisms. If the AI service cannot be reached, the job logs a warning and exits cleanly without affecting your application or standard Laravel error reporting.
+
+### Q: How do I test with a simulated error?
+You can verify communication anytime without throwing a real error using:
 ```bash
 php artisan ai-bug-fixer:test
 ```
 
 ---
 
-## Payload Specification (Laravel -> Python API)
+## 🔌 Python AI Service Specification (For Backend Engineers)
 
-The package sends a `POST` request to `{AI_BUG_FIXER_PYTHON_URL}/analyze` with a JSON payload structured as follows:
+The package communicates with your AI service via an HTTP `POST` request to `{python_url}/analyze`.
 
+### Request Payload Sent by Laravel:
 ```json
 {
   "id": "c1f727f6-6b2a-4ce6-a791-3e0e9a7e0a2b",
@@ -100,8 +336,7 @@ The package sends a `POST` request to `{AI_BUG_FIXER_PYTHON_URL}/analyze` with a
       "line": 28,
       "class": "App\\Services\\PaymentService",
       "type": "->",
-      "function": "process",
-      "args": ["App\\Models\\Order"]
+      "function": "process"
     }
   ],
   "environment": "production",
@@ -112,28 +347,15 @@ The package sends a `POST` request to `{AI_BUG_FIXER_PYTHON_URL}/analyze` with a
     "http": {
       "method": "POST",
       "url": "https://example.com/checkout",
-      "full_url": "https://example.com/checkout?step=2",
       "route_name": "checkout.process",
-      "route_action": "App\\Http\\Controllers\\CheckoutController@process",
-      "ip": "192.168.1.1",
-      "headers": {
-        "user-agent": "Mozilla/5.0 ...",
-        "accept": "application/json"
-      },
-      "input": {
-        "order_id": 1054,
-        "payment_method": "stripe",
-        "card_number": "********"
-      }
+      "ip": "192.168.1.1"
     }
   }
 }
 ```
 
-### Expected Python API Response
-
-Your Python API service should respond with HTTP status `200` and a JSON body:
-
+### Expected Response from Python API:
+Your service should respond with HTTP `200` and a JSON body:
 ```json
 {
   "status": "fix_available",
@@ -147,30 +369,13 @@ Your Python API service should respond with HTTP status `200` and a JSON body:
 }
 ```
 
-Supported `status` values:
-- `fix_available`: Fixes proposed and returned.
-- `needs_more_context`: More information or code needed.
-- `no_fix_found`: Analysis complete, no automatic fix identified.
-- `error`: Analysis encountered an error.
+
+## 📄 License
+
+This package is open-source software licensed under the [MIT License](LICENSE.md).
 
 ---
 
-## Testing
-
-Run unit and feature tests:
-
-```bash
-composer test
-```
-
-Or directly via PHPUnit:
-
-```bash
-./vendor/bin/phpunit
-```
-
----
-
-## License
-
-The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
+<div align="center">
+  <sub>Developed with ❤️ by <a href="https://acquaintsoft.com">Acquaint Softtech</a></sub>
+</div>
