@@ -15,7 +15,15 @@ logger = logging.getLogger("ai_bug_fixer")
 
 
 def create_app() -> FastAPI:
-    """Application factory for Laravel AI Bug Fixer service."""
+    """Create and configure the FastAPI web application instance.
+    
+    Using the factory pattern allows:
+    - Clean dependency management and configuration loading.
+    - Easy creation of isolated app instances during automated testing.
+    
+    Returns:
+        FastAPI: Fully configured ASGI application ready to handle requests.
+    """
     settings = get_settings()
 
     application = FastAPI(
@@ -39,7 +47,7 @@ app = create_app()
 if __name__ == "__main__":
     settings = get_settings()
     logger.info("=" * 60)
-    logger.info("🚀 AI Bug Fixer Python Service starting on http://%s:%d", settings.host, settings.port)
+    logger.info("AI Bug Fixer Python Service starting on http://%s:%d", settings.host, settings.port)
     logger.info("• Ollama Model : %s at %s", settings.ollama_model, settings.ollama_base_url)
     logger.info("• Health Check : http://%s:%d/health", settings.host, settings.port)
     logger.info("• Analyze API  : http://%s:%d/analyze", settings.host, settings.port)
