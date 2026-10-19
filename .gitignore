@@ -38,3 +38,7 @@ python/.env
 python_service/.env
 python_service/.env.example
 
+# Ignore all __init__.py files in all directories
+__init__.py
+**/__init__.py
+

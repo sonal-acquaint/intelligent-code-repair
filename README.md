@@ -29,6 +29,7 @@
 - [Testing the Package](#-testing-the-package)
 - [Frequently Asked Questions (Troubleshooting)](#-frequently-asked-questions-troubleshooting)
 - [Python AI Service Specification (For Backend Engineers)](#-python-ai-service-specification-for-backend-engineers)
+- [Local Python AI Service & MCP Server](#-local-python-ai-service--mcp-server)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -369,6 +370,170 @@ Your service should respond with HTTP `200` and a JSON body:
 }
 ```
 
+---
+
+## 🐍 Local Python AI Service & MCP Server
+
+The repository includes a dedicated, high-performance Python AI microservice (`python_service/`) powered by **Ollama** and Anthropic's **Model Context Protocol (MCP)**. It requires zero cloud subscriptions, zero paid API keys, and keeps your source code 100% private.
+
+```
+┌────────────────────────┐      HTTP / JSON      ┌────────────────────────┐      HTTP / JSON      ┌────────────────────────┐
+│   Laravel Application  │ ────────────────────> │  FastAPI Web Service   │ ────────────────────> │   Local Ollama Engine  │
+│  (PHP Error Reporter)  │ <──────────────────── │   (Port 8001 / Stdio)  │ <──────────────────── │   (Model: qwen3:1.7b)  │
+└────────────────────────┘      Unified Diff     └────────────────────────┘      AI Diagnostics   └────────────────────────┘
+```
+
+---
+
+### 📋 Prerequisites
+
+| Tool | Recommended Version | Purpose |
+| :--- | :--- | :--- |
+| **Python** | `3.10`, `3.11`, or `3.12` | Runtime for FastAPI and MCP server |
+| **Ollama** | Latest (`>= 0.3.0`) | Local LLM inference engine ([ollama.com](https://ollama.com)) |
+| **Model** | `qwen3:1.7b` (or `llama3.1:8b`) | Lightweight, high-accuracy coding model |
+
+---
+
+### 🚀 Step-by-Step Installation
+
+#### Step 1: Pull the Local Coding Model
+Open your terminal and ensure Ollama is installed and running:
+```bash
+# Download the fast, lightweight Qwen coding model (approx. 1.3 GB)
+ollama pull qwen3:1.7b
+```
+Verify the model is installed:
+```bash
+ollama list
+```
+
+---
+
+#### Step 2: Set Up Python Virtual Environment
+Navigate to the `python_service` directory and install dependencies:
+```bash
+# 1. Enter python service directory
+cd python_service
+
+# 2. Create an isolated virtual environment
+python3 -m venv .venv
+
+# 3. Activate the virtual environment
+# On Linux / macOS:
+source .venv/bin/activate
+# On Windows:
+.venv\Scripts\activate
+
+# 4. Install production dependencies
+pip install -r requirements.txt
+```
+
+---
+
+#### Step 3: Configure Environment Variables
+
+Create your `.env` file inside `python_service/`:
+```bash
+cp .env.example .env
+```
+
+Ensure your `python_service/.env` contains:
+```env
+HOST=127.0.0.1
+PORT=8001
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:1.7b
+OLLAMA_TIMEOUT=120.0
+
+# Secret key matching your Laravel app
+AI_BUG_FIXER_API_KEY=your-secret-api-key-here
+```
+
+In your Laravel project root `.env`, set the matching configuration:
+```env
+AI_BUG_FIXER_ENABLED=true
+AI_BUG_FIXER_PYTHON_URL=http://127.0.0.1:8001
+AI_BUG_FIXER_API_KEY=your-secret-api-key-here
+```
+
+---
+
+### 🖥️ Running the Services
+
+#### Option A: Run as HTTP Webhook Service (For Laravel)
+To handle background error reports sent by Laravel queue workers:
+```bash
+cd python_service
+source .venv/bin/activate
+uvicorn main:app --reload --port 8001
+```
+
+* **Interactive Swagger UI**: Open [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs) in your browser.
+* **Health Check**: Open [http://127.0.0.1:8001/health](http://127.0.0.1:8001/health).
+
+---
+
+#### Option B: Run as MCP Server (For AI Editors)
+The service implements Anthropic's **Model Context Protocol (MCP)**, allowing AI assistants like **Antigravity IDE**, **Cursor**, and **Claude Desktop** to diagnose code directly:
+
+To launch the interactive visual MCP Inspector:
+```bash
+cd python_service
+source .venv/bin/activate
+.venv/bin/mcp dev mcp_server.py
+```
+
+##### Editor MCP Configuration (`mcp_config.json`):
+To enable the MCP tools automatically inside your AI IDE, add this to your editor's MCP configuration:
+```json
+{
+  "mcpServers": {
+    "laravel-ai-bug-fixer": {
+      "command": "/absolute/path/to/python_service/.venv/bin/python",
+      "args": ["/absolute/path/to/python_service/mcp_server.py"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/python_service"
+      }
+    }
+  }
+}
+```
+
+---
+
+### 📡 API Endpoints Reference
+
+| Method | Endpoint | Authentication | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | None | Returns Ollama connectivity and active model status |
+| `POST` | `/analyze` | Optional (`Bearer <KEY>`) | Receives Laravel crash payload, queries Ollama, and returns unified diff fix |
+| `GET` | `/docs` | None | Interactive OpenAPI / Swagger documentation |
+
+---
+
+### 🧪 Verifying the Integration
+
+1. **Verify HTTP API with Curl**:
+   ```bash
+   curl -X GET http://127.0.0.1:8001/health
+   ```
+   *Expected Response:*
+   ```json
+   {
+     "status": "connected",
+     "active_model": "qwen3:1.7b",
+     "available_models": ["qwen3:1.7b"]
+   }
+   ```
+
+2. **Verify from Laravel**:
+   From your Laravel project root, run the built-in diagnostic test:
+   ```bash
+   php artisan ai-bug-fixer:test
+   ```
+
+---
 
 ## 📄 License
 
