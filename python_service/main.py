@@ -6,7 +6,6 @@ from app.core.config import get_settings
 from app.routers.analyze import router as analyze_router
 from app.routers.health import router as health_router
 
-
 # Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
