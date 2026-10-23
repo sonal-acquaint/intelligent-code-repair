@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "laravel-ai-bug-fixer": {
+      "command": "python3",
+      "args": [
+        "./python_service/mcp_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
