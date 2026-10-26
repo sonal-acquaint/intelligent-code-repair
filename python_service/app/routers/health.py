@@ -29,7 +29,7 @@ async def check_health(
     ollama_status = await ollama_service.check_health()
     return HealthResponse(
         status="ok",
-        service="laravel-ai-bug-fixer-python",
+        service="laravel-ai-bug-fixer",
         version="1.0.0",
         ollama=ollama_status,
     )
