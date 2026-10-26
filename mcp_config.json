@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "laravel-ai-bug-fixer": {
-      "command": "python3",
+      "command": "/home/acquaint/intelligent-code-repair/python_service/.venv/bin/python",
       "args": [
-        "./python_service/mcp_server.py"
+        "/home/acquaint/intelligent-code-repair/python_service/mcp_server.py"
       ],
       "env": {
         "PYTHONUNBUFFERED": "1"
