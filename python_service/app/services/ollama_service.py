@@ -268,6 +268,9 @@ class OllamaService:
                     "Ollama returned an invalid fixes list."
                 )
 
+            target_line = payload.line or 1
+            original_line = (payload.code_snippet or {}).get(str(target_line), "").rstrip("\r\n")
+
             fixes: List[FixItem] = []
 
             for fix in raw_fixes:
@@ -283,29 +286,20 @@ class OllamaService:
                 if not isinstance(diff, str) or not diff.strip():
                     continue
 
-                # Require a recognizable unified diff.
-                diff_lines = diff.splitlines()
-
-                has_file_headers = (
-                    len(diff_lines) >= 3
-                    and diff_lines[0].startswith("--- ")
-                    and diff_lines[1].startswith("+++ ")
-                )
-                has_hunk = any(
-                    line.startswith("@@ ")
-                    for line in diff_lines
+                normalized_diff = self._normalize_diff(
+                    diff=diff,
+                    target_file=file_name,
+                    target_line=target_line,
+                    original_line=original_line,
                 )
 
-                if not has_file_headers or not has_hunk:
-                    continue
-
-                if not file_name:
+                if not normalized_diff:
                     continue
 
                 fixes.append(
                     FixItem(
                         file=file_name,
-                        diff=diff,
+                        diff=normalized_diff,
                     )
                 )
 
@@ -331,19 +325,17 @@ class OllamaService:
 
         if diff_match and target_file:
             extracted_diff = diff_match.group(1).strip()
-            diff_lines = extracted_diff.splitlines()
+            target_line = payload.line or 1
+            original_line = (payload.code_snippet or {}).get(str(target_line), "").rstrip("\r\n")
 
-            has_file_headers = (
-                len(diff_lines) >= 3
-                and diff_lines[0].startswith("--- ")
-                and diff_lines[1].startswith("+++ ")
-            )
-            has_hunk = any(
-                line.startswith("@@ ")
-                for line in diff_lines
+            normalized_diff = self._normalize_diff(
+                diff=extracted_diff,
+                target_file=target_file,
+                target_line=target_line,
+                original_line=original_line,
             )
 
-            if has_file_headers and has_hunk:
+            if normalized_diff:
                 return AnalyzeResponse(
                     status="fix_available",
                     summary=(
@@ -352,10 +344,77 @@ class OllamaService:
                     fixes=[
                         FixItem(
                             file=target_file,
-                            diff=extracted_diff,
+                            diff=normalized_diff,
                         )
                     ],
                 )
+
+    def _normalize_diff(
+        self,
+        diff: str,
+        target_file: str,
+        target_line: int,
+        original_line: str = "",
+    ) -> Optional[str]:
+        """Normalize and validate a unified diff patch so git apply accepts it cleanly."""
+        if not diff or not isinstance(diff, str):
+            return None
+
+        lines = [line.rstrip("\r") for line in diff.strip().splitlines()]
+        if not lines:
+            return None
+
+        clean_file = target_file.strip().replace("\\", "/").lstrip("/")
+
+        # Check if first lines have --- and +++ headers
+        has_file_headers = (
+            len(lines) >= 3
+            and lines[0].startswith("--- ")
+            and lines[1].startswith("+++ ")
+        )
+        if not has_file_headers:
+            lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}"] + [
+                line for line in lines if not (line.startswith("---") or line.startswith("+++"))
+            ]
+
+        # Substitute placeholder -buggy_code with actual original code line if known
+        if original_line:
+            for i, line in enumerate(lines):
+                if line.strip() in (
+                    "-buggy_code",
+                    "-original_buggy_code",
+                    "-<buggy_code>",
+                    "-...",
+                    "-// buggy code",
+                ):
+                    lines[i] = f"-{original_line}"
+
+        # Find hunk header and split content
+        hunk_idx = -1
+        for i, line in enumerate(lines):
+            if line.startswith("@@ "):
+                hunk_idx = i
+                break
+
+        content_lines = lines[hunk_idx + 1 :] if hunk_idx != -1 else lines[2:]
+        clean_content = [
+            l for l in content_lines
+            if (l.startswith("-") or l.startswith("+") or l.startswith(" "))
+            and not l.startswith("---")
+            and not l.startswith("+++")
+        ]
+
+        removed_count = sum(1 for l in clean_content if l.startswith("-"))
+        added_count = sum(1 for l in clean_content if l.startswith("+"))
+
+        if removed_count == 0 and added_count == 0:
+            return None
+
+        # Reconstruct verified hunk header
+        corrected_hunk = f"@@ -{target_line},{max(removed_count, 1)} +{target_line},{max(added_count, 1)} @@"
+        result_lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}", corrected_hunk] + clean_content
+
+        return "\n".join(result_lines) + "\n"
 
         # 5. No valid response: never create a fake patch.
         logger.warning(
