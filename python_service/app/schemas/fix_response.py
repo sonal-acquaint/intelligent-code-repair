@@ -30,6 +30,6 @@ class HealthResponse(BaseModel):
     """Health check response for the service."""
 
     status: str = Field(default="ok", description="Service status")
-    service: str = Field(default="laravel-ai-bug-fixer-python", description="Service identifier")
+    service: str = Field(default="laravel-ai-bug-fixer", description="Service identifier")
     version: str = Field(default="1.0.0", description="Service version")
     ollama: OllamaStatus = Field(..., description="Ollama backend connection info")

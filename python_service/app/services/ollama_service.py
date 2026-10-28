@@ -1,6 +1,5 @@
 import json
 import logging
-from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
@@ -74,7 +73,7 @@ class OllamaService:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings: Settings = settings or get_settings()
 
-        self.base_url: str = self.settings.ollama_base_url.rstrip("/")
+        self.base_url: str = self.settings.ollama_base_url.rstrip("/") # read the ollama url 
 
         self.model: str = self.settings.ollama_model
 
@@ -95,9 +94,9 @@ class OllamaService:
         ollama_status = "unavailable"
         available_models: List[str] = []
 
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{self.base_url}/api/tags")
+        try: 
+            async with httpx.AsyncClient(timeout=5.0) as client: # create asyncronous httpx client with timeout of 5.0 seconds
+                resp = await client.get(f"{self.base_url}/api/tags") # send get request to ollama server to check connection
                 if resp.status_code == 200:
                     ollama_status = "connected"
                     models_data = resp.json().get("models", [])
@@ -129,8 +128,6 @@ class OllamaService:
         Returns:
             AnalyzeResponse: Root cause explanation, status, and unified diff patches.
         """
-        target_file = payload.relative_file or payload.file or "UnknownFile.php"
-
         # We reply immediately without invoking the heavy LLM.
         if payload.id == "test-connection-probe":
             logger.info("Responding to Laravel connectivity probe.")
@@ -147,31 +144,52 @@ class OllamaService:
             logger.info("Dispatching diagnostic prompt to Ollama model '%s'...", self.model)
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 ollama_response = await client.post(
-                    f"{self.base_url}/api/generate", #ollama api call
+                    f"{self.base_url}/api/generate",
                     json={
                         "model": self.model,
                         "prompt": prompt,
-                        "stream": False,  # We want the complete response at once, not streaming chunks
-                        "format": OLLAMA_JSON_SCHEMA,  # Enforce JSON output schema
+                        "stream": False,
+                        "format": OLLAMA_JSON_SCHEMA,
+                        "keep_alive": "30m",
+                        "think": False,
                         "options": {
-                            "temperature": 0.2,  # Low temperature makes output focused and deterministic
+                            "temperature": 0,
+                            "num_predict": 180,
+                            "num_thread":4,
+                            "num_ctx": 2048,
                         },
                     },
                 )
 
-            # Check if Ollama returned an HTTP error code (e.g. 404 model not found)
             if ollama_response.status_code != 200:
-                error_summary = f"Ollama HTTP {ollama_response.status_code}: {ollama_response.text}"
+                error_summary = (
+                    f"Ollama HTTP {ollama_response.status_code}: "
+                    f"{ollama_response.text}"
+                )
                 logger.error(error_summary)
                 return AnalyzeResponse(
                     status="error",
-                    summary=error_summary,
+                    summary="Ollama request failed. Check the server logs.",
                     fixes=[],
                 )
 
             ollama_data = ollama_response.json()
+
+            logger.info(
+                "Ollama timing | total=%.2fs | load=%.2fs | "
+                "prompt=%.2fs | generation=%.2fs | tokens=%s",
+                ollama_data.get("total_duration", 0) / 1e9,
+                ollama_data.get("load_duration", 0) / 1e9,
+                ollama_data.get("prompt_eval_duration", 0) / 1e9,
+                ollama_data.get("eval_duration", 0) / 1e9,
+                ollama_data.get("eval_count", 0),
+            )
+
             raw_text = ollama_data.get("response", "")
-            logger.info("Ollama response generated (%d characters). Parsing result...", len(raw_text))
+            logger.info(
+                "Ollama response generated (%d characters). Parsing result...",
+                len(raw_text),
+            )
 
             return self._parse_response(raw_text, payload)
 
@@ -200,7 +218,7 @@ class OllamaService:
         """Parse Ollama output without inventing code patches."""
 
         clean_text = raw_text.strip()
-        target_file = payload.relative_file or payload.file
+        target_file = payload.target_file
 
         def needs_context(summary: str) -> AnalyzeResponse:
             return AnalyzeResponse(
@@ -268,6 +286,9 @@ class OllamaService:
                     "Ollama returned an invalid fixes list."
                 )
 
+            target_line = payload.line or 1
+            original_line = (payload.code_snippet or {}).get(str(target_line), "").rstrip("\r\n")
+
             fixes: List[FixItem] = []
 
             for fix in raw_fixes:
@@ -283,29 +304,20 @@ class OllamaService:
                 if not isinstance(diff, str) or not diff.strip():
                     continue
 
-                # Require a recognizable unified diff.
-                diff_lines = diff.splitlines()
-
-                has_file_headers = (
-                    len(diff_lines) >= 3
-                    and diff_lines[0].startswith("--- ")
-                    and diff_lines[1].startswith("+++ ")
-                )
-                has_hunk = any(
-                    line.startswith("@@ ")
-                    for line in diff_lines
+                normalized_diff = self._normalize_diff(
+                    diff=diff,
+                    target_file=file_name,
+                    target_line=target_line,
+                    original_line=original_line,
                 )
 
-                if not has_file_headers or not has_hunk:
-                    continue
-
-                if not file_name:
+                if not normalized_diff:
                     continue
 
                 fixes.append(
                     FixItem(
                         file=file_name,
-                        diff=diff,
+                        diff=normalized_diff,
                     )
                 )
 
@@ -331,19 +343,17 @@ class OllamaService:
 
         if diff_match and target_file:
             extracted_diff = diff_match.group(1).strip()
-            diff_lines = extracted_diff.splitlines()
+            target_line = payload.line or 1
+            original_line = (payload.code_snippet or {}).get(str(target_line), "").rstrip("\r\n")
 
-            has_file_headers = (
-                len(diff_lines) >= 3
-                and diff_lines[0].startswith("--- ")
-                and diff_lines[1].startswith("+++ ")
-            )
-            has_hunk = any(
-                line.startswith("@@ ")
-                for line in diff_lines
+            normalized_diff = self._normalize_diff(
+                diff=extracted_diff,
+                target_file=target_file,
+                target_line=target_line,
+                original_line=original_line,
             )
 
-            if has_file_headers and has_hunk:
+            if normalized_diff:
                 return AnalyzeResponse(
                     status="fix_available",
                     summary=(
@@ -352,19 +362,85 @@ class OllamaService:
                     fixes=[
                         FixItem(
                             file=target_file,
-                            diff=extracted_diff,
+                            diff=normalized_diff,
                         )
                     ],
                 )
 
-        # 5. No valid response: never create a fake patch.
+        # 5. No valid response: safely return needs_more_context (NEVER return None!)
         logger.warning(
             "Could not parse a valid Ollama response for error %s",
             payload.id,
         )
 
         return needs_context(
-            "Ollama returned an unrecognized response. "
-            "No patch was generated."
+            "Ollama response was incomplete or could not be parsed into a patch."
         )
+
+    def _normalize_diff(
+        self,
+        diff: str,
+        target_file: str,
+        target_line: int,
+        original_line: str = "",
+    ) -> Optional[str]:
+        """Normalize and validate a unified diff patch so git apply accepts it cleanly."""
+        if not diff or not isinstance(diff, str):
+            return None
+
+        lines = [line.rstrip("\r") for line in diff.strip().splitlines()]
+        if not lines:
+            return None
+
+        clean_file = target_file.strip().replace("\\", "/").lstrip("/")
+
+        # Check if first lines have --- and +++ headers
+        has_file_headers = (
+            len(lines) >= 3
+            and lines[0].startswith("--- ")
+            and lines[1].startswith("+++ ")
+        )
+        if not has_file_headers:
+            lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}"] + [
+                line for line in lines if not (line.startswith("---") or line.startswith("+++"))
+            ]
+
+        # Substitute placeholder -buggy_code with actual original code line if known
+        if original_line:
+            for i, line in enumerate(lines):
+                if line.strip() in (
+                    "-buggy_code",
+                    "-original_buggy_code",
+                    "-<buggy_code>",
+                    "-...",
+                    "-// buggy code",
+                ):
+                    lines[i] = f"-{original_line}"
+
+        # Find hunk header and split content
+        hunk_idx = -1
+        for i, line in enumerate(lines):
+            if line.startswith("@@ "):
+                hunk_idx = i
+                break
+
+        content_lines = lines[hunk_idx + 1 :] if hunk_idx != -1 else lines[2:]
+        clean_content = [
+            l for l in content_lines
+            if (l.startswith("-") or l.startswith("+") or l.startswith(" "))
+            and not l.startswith("---")
+            and not l.startswith("+++")
+        ]
+
+        removed_count = sum(1 for l in clean_content if l.startswith("-"))
+        added_count = sum(1 for l in clean_content if l.startswith("+"))
+
+        if removed_count == 0 and added_count == 0:
+            return None
+
+        # Reconstruct verified hunk header
+        corrected_hunk = f"@@ -{target_line},{max(removed_count, 1)} +{target_line},{max(added_count, 1)} @@"
+        result_lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}", corrected_hunk] + clean_content
+
+        return "\n".join(result_lines) + "\n"
 
