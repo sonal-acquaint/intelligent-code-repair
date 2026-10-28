@@ -21,6 +21,11 @@ class AnalyzePayload(BaseModel):
     php_version: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
 
+    @property
+    def target_file(self) -> str:
+        """Return the best available target file path."""
+        return (self.relative_file or self.file).strip()
+
     @model_validator(mode="before")
     @classmethod
     def validate_payload(cls, values):

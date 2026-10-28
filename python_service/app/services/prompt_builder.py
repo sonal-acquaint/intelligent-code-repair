@@ -9,8 +9,7 @@ class PromptBuilder:
 
     @staticmethod
     def build(payload: AnalyzePayload) -> str:
-        raw_file = payload.relative_file or payload.file or "UnknownFile.php"
-        file_path = raw_file.strip().replace("\\", "/").lstrip("/")
+        file_path = payload.target_file.replace("\\", "/").lstrip("/")
 
         match = re.search(
             r"(?:^|/)((?:app|src|routes|database|config|resources|bootstrap|public|tests)/.+)$",

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+import logging
+from fastapi import APIRouter, Depends, HTTPException
 from app.schemas.error_report import AnalyzePayload
 from app.schemas.fix_response import AnalyzeResponse
 from app.services.ollama_service import OllamaService
@@ -6,10 +7,12 @@ from app.services.ollama_service import OllamaService
 
 router = APIRouter(tags=["Analysis"])
 
+logger = logging.getLogger("ai_bug_fixer.ollama")
 
 # DEPENDENCY INJECTION PROVIDER
 def get_ollama_service() -> OllamaService:
     return OllamaService()
+
 
 
 @router.post(
@@ -22,4 +25,20 @@ async def analyze_exception(
     payload: AnalyzePayload,
     ollama_service: OllamaService = Depends(get_ollama_service),
 ) -> AnalyzeResponse:
-    return await ollama_service.analyze_and_repair(payload)
+    try:
+        result = await ollama_service.analyze_and_repair(payload)
+        if result is None:
+            logger.error("analyze_and_repair returned None")
+            raise HTTPException(
+                status_code=500,
+                detail="internalServerError",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Unexpected error in /analyze endpoint")
+        raise HTTPException(
+            status_code=500,
+            detail="internalServerError",
+        )   

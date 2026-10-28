@@ -1,6 +1,5 @@
 import json
 import logging
-from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional
 
@@ -74,7 +73,7 @@ class OllamaService:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings: Settings = settings or get_settings()
 
-        self.base_url: str = self.settings.ollama_base_url.rstrip("/")
+        self.base_url: str = self.settings.ollama_base_url.rstrip("/") # read the ollama url 
 
         self.model: str = self.settings.ollama_model
 
@@ -95,9 +94,9 @@ class OllamaService:
         ollama_status = "unavailable"
         available_models: List[str] = []
 
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{self.base_url}/api/tags")
+        try: 
+            async with httpx.AsyncClient(timeout=5.0) as client: # create asyncronous httpx client with timeout of 5.0 seconds
+                resp = await client.get(f"{self.base_url}/api/tags") # send get request to ollama server to check connection
                 if resp.status_code == 200:
                     ollama_status = "connected"
                     models_data = resp.json().get("models", [])
@@ -129,8 +128,6 @@ class OllamaService:
         Returns:
             AnalyzeResponse: Root cause explanation, status, and unified diff patches.
         """
-        target_file = payload.relative_file or payload.file or "UnknownFile.php"
-
         # We reply immediately without invoking the heavy LLM.
         if payload.id == "test-connection-probe":
             logger.info("Responding to Laravel connectivity probe.")
@@ -147,31 +144,52 @@ class OllamaService:
             logger.info("Dispatching diagnostic prompt to Ollama model '%s'...", self.model)
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 ollama_response = await client.post(
-                    f"{self.base_url}/api/generate", #ollama api call
+                    f"{self.base_url}/api/generate",
                     json={
                         "model": self.model,
                         "prompt": prompt,
-                        "stream": False,  # We want the complete response at once, not streaming chunks
-                        "format": OLLAMA_JSON_SCHEMA,  # Enforce JSON output schema
+                        "stream": False,
+                        "format": OLLAMA_JSON_SCHEMA,
+                        "keep_alive": "30m",
+                        "think": False,
                         "options": {
-                            "temperature": 0.2,  # Low temperature makes output focused and deterministic
+                            "temperature": 0,
+                            "num_predict": 180,
+                            "num_thread":4,
+                            "num_ctx": 2048,
                         },
                     },
                 )
 
-            # Check if Ollama returned an HTTP error code (e.g. 404 model not found)
             if ollama_response.status_code != 200:
-                error_summary = f"Ollama HTTP {ollama_response.status_code}: {ollama_response.text}"
+                error_summary = (
+                    f"Ollama HTTP {ollama_response.status_code}: "
+                    f"{ollama_response.text}"
+                )
                 logger.error(error_summary)
                 return AnalyzeResponse(
                     status="error",
-                    summary=error_summary,
+                    summary="Ollama request failed. Check the server logs.",
                     fixes=[],
                 )
 
             ollama_data = ollama_response.json()
+
+            logger.info(
+                "Ollama timing | total=%.2fs | load=%.2fs | "
+                "prompt=%.2fs | generation=%.2fs | tokens=%s",
+                ollama_data.get("total_duration", 0) / 1e9,
+                ollama_data.get("load_duration", 0) / 1e9,
+                ollama_data.get("prompt_eval_duration", 0) / 1e9,
+                ollama_data.get("eval_duration", 0) / 1e9,
+                ollama_data.get("eval_count", 0),
+            )
+
             raw_text = ollama_data.get("response", "")
-            logger.info("Ollama response generated (%d characters). Parsing result...", len(raw_text))
+            logger.info(
+                "Ollama response generated (%d characters). Parsing result...",
+                len(raw_text),
+            )
 
             return self._parse_response(raw_text, payload)
 
@@ -200,7 +218,7 @@ class OllamaService:
         """Parse Ollama output without inventing code patches."""
 
         clean_text = raw_text.strip()
-        target_file = payload.relative_file or payload.file
+        target_file = payload.target_file
 
         def needs_context(summary: str) -> AnalyzeResponse:
             return AnalyzeResponse(
@@ -349,6 +367,16 @@ class OllamaService:
                     ],
                 )
 
+        # 5. No valid response: safely return needs_more_context (NEVER return None!)
+        logger.warning(
+            "Could not parse a valid Ollama response for error %s",
+            payload.id,
+        )
+
+        return needs_context(
+            "Ollama response was incomplete or could not be parsed into a patch."
+        )
+
     def _normalize_diff(
         self,
         diff: str,
@@ -415,15 +443,4 @@ class OllamaService:
         result_lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}", corrected_hunk] + clean_content
 
         return "\n".join(result_lines) + "\n"
-
-        # 5. No valid response: never create a fake patch.
-        logger.warning(
-            "Could not parse a valid Ollama response for error %s",
-            payload.id,
-        )
-
-        return needs_context(
-            "Ollama returned an unrecognized response. "
-            "No patch was generated."
-        )
 
