@@ -45,7 +45,7 @@ class Settings:
         os.getenv("OLLAMA_TIMEOUT", "120.0")
     )
 
-    api_key: Optional[str] = os.getenv("AI_BUG_FIXER_API_KEY") or os.getenv("API_KEY")
+    api_key: Optional[str] = os.getenv("AI_BUG_FIXER_API_KEY") 
 
 
 

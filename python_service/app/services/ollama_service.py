@@ -151,12 +151,11 @@ class OllamaService:
                         "prompt": prompt,
                         "stream": False,
                         "format": OLLAMA_JSON_SCHEMA,
-                        "keep_alive": "30m",
+                        "keep_alive": "10m",
                         "think": False,
                         "options": {
                             "temperature": 0,
-                            "num_predict": 250,
-                            "num_thread": 4,
+                            "num_predict": 180,
                             "num_ctx": 2048,
                         },
                     },
@@ -170,7 +169,7 @@ class OllamaService:
                 logger.error(error_summary)
                 return AnalyzeResponse(
                     status="error",
-                    summary="Ollama request failed. Check the server logs.",
+                    summary="Ollama request failed. Check server logs.",
                     fixes=[],
                 )
 
@@ -461,4 +460,3 @@ class OllamaService:
         result_lines = [f"--- a/{clean_file}", f"+++ b/{clean_file}", corrected_hunk] + clean_content
 
         return "\n".join(result_lines) + "\n"
-

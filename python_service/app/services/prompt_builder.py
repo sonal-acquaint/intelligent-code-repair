@@ -96,6 +96,3 @@ PHP: {payload.php_version or 'N/A'}
   ]
 }}
 """
-
-
- 
