@@ -38,6 +38,7 @@ OLLAMA_JSON_SCHEMA: Dict[str, Any] = {
         },
         "fixes": {
             "type": "array",
+            "maxItems": 1,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -154,8 +155,8 @@ class OllamaService:
                         "think": False,
                         "options": {
                             "temperature": 0,
-                            "num_predict": 180,
-                            "num_thread":4,
+                            "num_predict": 250,
+                            "num_thread": 4,
                             "num_ctx": 2048,
                         },
                     },
@@ -217,7 +218,8 @@ class OllamaService:
     ) -> AnalyzeResponse:
         """Parse Ollama output without inventing code patches."""
 
-        clean_text = raw_text.strip()
+        # Strip any <think> reasoning tokens if present
+        clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
         target_file = payload.target_file
 
         def needs_context(summary: str) -> AnalyzeResponse:
@@ -244,12 +246,11 @@ class OllamaService:
 
         # 2. If JSON is wrapped in a Markdown code fence, parse its contents.
         if parsed_json is None:
-            fence_match = re.fullmatch(
-                r"```(?:json)?\s*(.*?)\s*```",
+            fence_match = re.search(
+                r"```(?:json)?\s*(\{.*?\})\s*```",
                 clean_text,
                 re.DOTALL | re.IGNORECASE,
             )
-
             if fence_match:
                 try:
                     candidate = json.loads(fence_match.group(1))
@@ -258,7 +259,19 @@ class OllamaService:
                 except json.JSONDecodeError:
                     pass
 
-        # 3. Handle structured JSON.
+        # 3. Extract JSON object substring between outermost '{' and '}'
+        if parsed_json is None:
+            start = clean_text.find("{")
+            end = clean_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                try:
+                    candidate = json.loads(clean_text[start : end + 1])
+                    if isinstance(candidate, dict):
+                        parsed_json = candidate
+                except json.JSONDecodeError:
+                    pass
+
+        # 4. Handle structured JSON.
         if parsed_json is not None:
             raw_status = parsed_json.get("status")
             raw_summary = parsed_json.get("summary")
@@ -334,12 +347,17 @@ class OllamaService:
                 fixes=fixes,
             )
 
-        # 4. Optional fallback: accept an explicit, recognizable diff block.
+        # 5. Optional fallback: accept an explicit unified diff block.
         diff_match = re.search(
-            r"```(?:diff|patch)\s*\n(.*?)\n```",
+            r"```(?:diff|patch)?\s*\n(--- a/.*?)\n```",
             clean_text,
             re.DOTALL | re.IGNORECASE,
         )
+        if not diff_match:
+            diff_match = re.search(
+                r"(--- a/[^\n]+\n\+\+\+ b/[^\n]+\n@@[^\n]+@@[\s\S]+?)(?=\"\s*,|\"\s*\}|\n\n```|\Z)",
+                clean_text,
+            )
 
         if diff_match and target_file:
             extracted_diff = diff_match.group(1).strip()
@@ -367,7 +385,7 @@ class OllamaService:
                     ],
                 )
 
-        # 5. No valid response: safely return needs_more_context (NEVER return None!)
+        # 6. Guaranteed fallback: safely return needs_more_context (NEVER return None!)
         logger.warning(
             "Could not parse a valid Ollama response for error %s",
             payload.id,

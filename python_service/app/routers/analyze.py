@@ -26,9 +26,10 @@ async def analyze_exception(
     ollama_service: OllamaService = Depends(get_ollama_service),
 ) -> AnalyzeResponse:
     try:
+        logger.info("Received analyze request for exception: %s at %s:%s", payload.exception_class, payload.target_file, payload.line)
         result = await ollama_service.analyze_and_repair(payload)
         if result is None:
-            logger.error("analyze_and_repair returned None")
+            logger.error("analyze_and_repair returned None for error %s", payload.id)
             raise HTTPException(
                 status_code=500,
                 detail="internalServerError",
@@ -37,7 +38,7 @@ async def analyze_exception(
     except HTTPException:
         raise
     except Exception:
-        logger.exception("Unexpected error in /analyze endpoint")
+        logger.exception("Unexpected error in /analyze endpoint for error %s", payload.id)
         raise HTTPException(
             status_code=500,
             detail="internalServerError",

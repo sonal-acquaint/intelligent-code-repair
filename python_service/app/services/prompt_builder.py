@@ -47,6 +47,7 @@ class PromptBuilder:
             if original_line
             else ""
         )
+        clean_orig = (original_line or "original_buggy_code").replace('"', '\\"').replace("\n", " ")
 
         return f"""
 You are an expert Laravel debugging and code repair AI.
@@ -81,16 +82,16 @@ PHP: {payload.php_version or 'N/A'}
    - Include hunk header '@@ -{target_line},1 +{target_line},N @@' (where N is the number of added replacement lines)
    - Prefix the exact original line from line {target_line} with '-'
    - Prefix each corrected replacement line with '+'
-4. Set status to "fix_available" and explain the root cause and fix in "summary".
+4. Set status to "fix_available". Keep "summary" to one short sentence (max 20 words). Provide exactly ONE fix in "fixes".
 
 ### REQUIRED JSON RESPONSE STRUCTURE:
 {{
   "status": "fix_available",
-  "summary": "Explain what caused the error and how the fix resolves it.",
+  "summary": "Short explanation of the fix.",
   "fixes": [
     {{
       "file": "{target_file}",
-      "diff": "--- a/{target_file}\\n+++ b/{target_file}\\n@@ -{target_line},1 +{target_line},1 @@\\n-{original_line or 'original_buggy_code'}\\n+fixed_code\\n"
+      "diff": "--- a/{target_file}\\n+++ b/{target_file}\\n@@ -{target_line},1 +{target_line},1 @@\\n-{clean_orig}\\n+fixed_code\\n"
     }}
   ]
 }}
